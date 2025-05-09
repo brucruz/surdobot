@@ -12,37 +12,42 @@ if wit_token is None:
 
 app = Chalice(app_name='surdobot')
 
-@retry(tries = 3)
-def respond(file: str, chat_id: int, message_id: int, reply: telebot.types.Message) -> telebot.types.Message | None:
-    import json
+@retry(tries=3)
+def fetch_with_response(file):
     import requests
-    import re
     with open(file, 'rb') as f:
-        resp = requests.post(
-            #?v=20221114
-            #&context=%7B%22locale%22%3A%22pt_BR%22%7D
+        return requests.post(
             'https://api.wit.ai/dictation',
-            headers = {
+            headers={
                 'Content-Type': file_utils.CONTENT_TYPE,
                 'Authorization': f'Bearer {wit_token}'
             },
-            data = f,
-            stream = True)
+            data=f,
+            stream=True
+        )
 
+def respond(file: str, chat_id: int, message_id: int, reply: telebot.types.Message) -> telebot.types.Message | None:
+    import json, re
+
+    resp = fetch_with_response(file)
     bytes = resp.raw.read()
     content = bytes.decode(json.detect_encoding(bytes))
     data = re.split(r'(?<=\})\s*(?=\{)', content)
-    jsons = [json.loads(item) for item in data]
-    errors = [obj.get('error') for obj in jsons if obj.get('error') is not None]
-    if any(errors):
-        print('Wit.AI Errors:')
-        for error in errors:
-            print(error)
 
+    try:
+        jsons = [json.loads(item) for item in data]
+    except Exception as e:
+        print(f"JSON parse error: {e}")
+        return
+
+    errors = [obj.get('error') for obj in jsons if obj.get('error')]
+    if errors:
+        print('Wit.AI Errors:', errors)
         return
 
     finals = [obj.get('text') for obj in jsons if obj.get('is_final')]
     text = ' '.join(finals)
+    
     if len(text) == 0:
         print('Empty text')
     else:
